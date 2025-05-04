@@ -1584,8 +1584,13 @@ canvas.addEventListener('mousemove', () => {
     }
 });
 
+let laserFrameCounter = 0;
+
 Events.on(render, 'afterRender', () => {
     const ctx = render.context;
+
+    laserFrameCounter++;
+    if (laserFrameCounter % 3 !== 0) return; // ⚠️ Skip most frames
 
     // 🎯 Sniper laser sight (aims where the bullet will actually go)
     if (selectedAsset && selectedAsset.label === 'sniper' && isDragging && globalMousePos) {
