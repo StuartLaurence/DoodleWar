@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Doodle War</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: sans-serif;
+      background: #ffffff; /* Light background */
+      text-align: center;
+      color: #000; /* Black text */
+    }
+
+    #gameContainer {
+      position: relative;
+      width: 800px;
+      height: 500px;
+      margin: 20px auto;
+    }
+
+    #notebookBg,
+    #canyonLayer {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 800px;
+      height: 500px;
+      pointer-events: none;
+    }
+
+    #notebookBg {
+      z-index: 0;
+      /* Remove debug border unless you want it: */
+      /* border: 2px dashed red; */
+    }
+
+    #canyonLayer {
+      z-index: 1;
+      transform: scaleX(1.03) scaleY(0.8); /* scale to 90% size */
+      transform-origin: top left; /* anchor the scale to the top-left corner */
+      position: absolute;        /* just making sure */
+      top: 20px;                 /* 👈 this moves it DOWN */
+      left: -15px;                   /* tweak this too if needed */
+      pointer-events: none;      /* lets clicks pass through */
+    }
+
+    #gameCanvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 800px;
+      height: 500px;
+      z-index: 2;
+      background: transparent !important;
+      /* Optional border for debugging */
+      /* border: 1px solid black; */
+    }
+
+
+
+    #turnIndicator {
+      font-size: 18px;
+      margin-top: 10px;
+      color: #000;
+    }
+
+    #asset-ui {
+      margin-top: 10px;
+    }
+
+    #asset-ui button {
+      margin: 4px;
+      padding: 6px 12px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="gameContainer">
+    <img id="notebookBg" src="images/notebook_bg.png" />
+    <img id="canyonLayer" src="images/canyon.svg?v=3" />
+    <canvas id="gameCanvas" width="800" height="500"></canvas>
+  </div>   
+
+  <div id="turnIndicator">
+    Player 1, Choose Your Weapons
+  </div>
+
+  <div id="asset-ui">
+    <button id="loadTestBtn">Load Test Level</button>
+    <button id="quickStartBtn">Quick Start Battle</button>
+    <button onclick="selectAsset('cannon')">Cannon (3)</button>
+    <button onclick="selectAsset('archer')">Archer (4)</button>
+    <button onclick="selectAsset('mortar')">Mortar (2)</button>
+    <button onclick="selectAsset('machineGunNest')">Machinegun Nest (3)</button>
+    <button onclick="selectAsset('footSoldier')">Foot Soldiers (3)</button>
+    <button onclick="selectAsset('sniper')">Sniper (1)</button>
+    <button onclick="selectAsset('ammoDump')">Ammo Dump (1)</button>
+    <button onclick="selectAsset('hq')">HQ (1)</button>
+    <button onclick="selectAsset('barrier')">Barrier (4)</button>
+    <button onclick="finishPlacement()" id="readyButton">Player 1 Ready</button>
+    <button onclick="playSound('cannon_fire')">Test Sound</button>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>
