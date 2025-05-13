@@ -4,6 +4,16 @@ let nextAssetId = 0;
 const playerAssets = [];
 const enemyAssets = [];
 
+let victoryCondition = "lastManStanding";
+
+// Get reference to existing dropdown in HTML
+const modeDropdown = document.getElementById('victoryMode');
+
+modeDropdown.addEventListener('change', () => {
+    victoryCondition = modeDropdown.value;
+    console.log(`🎯 Victory condition set to: ${victoryCondition}`);
+});
+
 let placedAssetsCount = {
     cannon: 0,
     archer: 0,
@@ -28,12 +38,102 @@ const assetLimits = {
     hq: 1
 };
 
+function placeAsset(type, x, y, isPlayer) {
+    const def = assetDefs[type];
+
+    if (type === 'footSoldier') {
+        const spacing = def.size[0] + 1;
+        const count = 5;
+        const squadId = `squad_${nextSquadId++}`;
+        const squad = [];
+
+        for (let i = 0; i < count; i++) {
+            const xOffset = (i - 2) * spacing;
+            const soldier = Bodies.rectangle(
+                x + xOffset,
+                y,
+                def.size[0],
+                def.size[1],
+                {
+                    isStatic: true,
+                    label: 'footSoldier',
+                    hp: assetHPs.footSoldier,
+                    render: { visible: false },
+                    assetId: nextAssetId++
+                }
+            );
+            soldier.squadId = squadId;
+            soldier.isFlipped = !isPlayer;
+            soldier.customImageIndex = Math.floor(Math.random() * footSoldierImages.length);
+            soldier.alive = true;
+            World.add(world, soldier);
+            squad.push(soldier);
+        }
+
+        footSoldierSquads[squadId] = squad;
+        return squad[0]; // Return first soldier
+    }
+
+    if (type === 'barrier') {
+        const parts = [];
+        const barrierUnitId = String(nextBarrierUnitId++);
+
+        for (let i = 0; i < 3; i++) {
+            const yOffset = -i * (def.size[1] + 2);
+            const block = Bodies.rectangle(
+                x,
+                y + yOffset,
+                def.size[0],
+                def.size[1],
+                {
+                    isStatic: true,
+                    label: 'barrier',
+                    render: { fillStyle: def.color },
+                    collisionFilter: {
+                        category: 0x0001,
+                        mask: 0xFFFFFFFF
+                    }
+                }
+            );
+            block.parentUnitId = barrierUnitId;
+            block.assetId = nextAssetId++;
+            parts.push(block);
+            World.add(world, block);
+        }
+
+        barrierUnits.push({
+            id: barrierUnitId,
+            hp: assetHPs.barrier * 3,
+            parts: parts
+        });
+
+        return parts[0];
+    }
+
+    const isBarrier = type === 'barrier';
+
+    const newAsset = Bodies.rectangle(x, y, def.size[0], def.size[1], {
+        isStatic: true,
+        label: type,
+        hp: assetHPs[type],
+        render: isBarrier
+            ? { fillStyle: def.color }
+            : { visible: false },
+        assetId: nextAssetId++
+    });
+
+    newAsset.isFlipped = !isPlayer;
+    newAsset.alive = true;
+    World.add(world, newAsset);
+    return newAsset;
+}
+
 function canPlaceAsset(type) {
     return placedAssetsCount[type] < (assetLimits[type] || 0);
 }
 
 let nextSquadId = 0; // ✅ Ensure this exists
-const footSoldierSquads = {}; // ✅ Ensure this exists
+let footSoldierSquads = {}; // ✅ Ensure this exists
 const { Engine, Render, World, Bodies, Body, Events, Mouse, Vector, Query, Composite, Sleeping } = Matter;
 const engine = Engine.create();
 const world = engine.world;
@@ -110,7 +210,9 @@ const assetSizes = {
     machineGunNest: [MGN_WIDTH, MGN_HEIGHT],
     commander: [COMMANDER_WIDTH, COMMANDER_HEIGHT],
     hq: [HQ_WIDTH, HQ_HEIGHT],
-    ammoDump: [AMMO_DUMP_WIDTH, AMMO_DUMP_HEIGHT]
+    ammoDump: [AMMO_DUMP_WIDTH, AMMO_DUMP_HEIGHT],
+    barrier_block: [30, 15]
+
 };
 
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -148,7 +250,6 @@ const imagePaths = {
   notebook_bg: 'images/notebook_bg.png'
 };
 
-
 for (const [key, path] of Object.entries(imagePaths)) {
     const img = new Image();
     img.src = path;
@@ -168,6 +269,15 @@ function drawNotebookBackground() {
 function drawAssetImage(ctx, asset, label, width, height) {
     const maxHP = assetHPs[label];
     const isDamaged = asset.hp < maxHP;
+
+    if (label === 'barrier_block') {
+        const imgKey = isDamaged && images[`${label}_damaged`] ? `${label}_damaged` : label;
+        const img = images[imgKey];
+        console.log(`🎯 drawAssetImage for barrier_block | imgKey: ${imgKey} | img loaded:`, img?.complete);
+        console.log("🧱 barrier asset:", asset);
+        if (!img) console.warn("🚫 Image not found for barrier_block.");
+        if (img && !img.complete) console.warn("🕒 Image still loading for barrier_block.");
+    }
 
     const imgKey = isDamaged && images[`${label}_damaged`] ? `${label}_damaged` : label;
     const img = images[imgKey];
@@ -350,8 +460,8 @@ let placementPhase = true;
 function updateTurnIndicator() {
     const turnIndicator = document.getElementById('turnIndicator');
     if (!placementPhase) {
-        turnIndicator.textContent = isPlayerTurn ? "Player 1's (Blue) Turn" : "Player 2's (Red) Turn";
-        turnIndicator.style.color = isPlayerTurn ? '#3498db' : '#e74c3c';
+        turnIndicator.textContent = isPlayerTurn ? "Player 1's Turn" : "Player 2's Turn";
+        turnIndicator.style.color = isPlayerTurn ? '#1e3d59' : '#8b1a1a';
     }
 }
 
@@ -658,7 +768,7 @@ function finishPlacement() {
         // Player 1 done placing, switch to Player 2
         isPlayerTurn = false; 
         turnIndicator.textContent = "Player 2, Choose Your Weapons";
-        turnIndicator.style.color = '#e74c3c';
+        turnIndicator.style.color = '#8b1a1a';
         readyButton.textContent = "Player 2 Ready";
 
         for (let type in placedAssetsCount) {
@@ -863,6 +973,45 @@ function spawnProjectile(spawnPos, type = "bullet", shooterId = null, squadId = 
     
 
     return body;
+}
+
+function generateRandomBattle() {
+    // Clear current assets
+    clearAssets();
+
+    // Generate new randomized assets for both sides
+    generateSideAssets("player", 100, 300);  // Player's side (left)
+    generateSideAssets("enemy", 500, 720);   // Enemy's side (right)
+
+    // You might want to reset turns and other state variables too
+    currentTurn = "player"; // or randomize if you want
+}
+
+function clearAssets() {
+    // Remove all assets from world and arrays
+    for (const asset of [...playerAssets, ...enemyAssets]) {
+        Composite.remove(world, asset.body);
+        if (asset.extra && asset.extra.length) {
+            for (const extra of asset.extra) {
+                Composite.remove(world, extra);
+            }
+        }
+    }
+
+    playerAssets.length = 0;
+    enemyAssets.length = 0;
+
+    // Reset placement counters
+    for (const key in placedAssetsCount) {
+        placedAssetsCount[key] = 0;
+    }
+
+    // Reset squads if needed
+    if (footSoldierSquads) {
+        for (const squadId in footSoldierSquads) {
+            delete footSoldierSquads[squadId];
+        }
+    }
 }
 
 // === Mouse Interaction for Firing ===
@@ -1139,12 +1288,15 @@ Events.on(engine, 'collisionStart', event => {
         if (asset.hp <= 0) {
             if (asset.label === 'footSoldier') {
                 console.log("☠️ Foot Soldier dead, removing from world and assets.");
+                asset.alive = false; // 👈 ADD THIS
                 World.remove(world, asset);
+                checkVictoryCondition();
                 playerAssets = playerAssets.filter(a => a.assetId !== asset.assetId);
                 enemyAssets = enemyAssets.filter(a => a.assetId !== asset.assetId);
                 return; // prevent further processing
             }        
             if (asset.label === 'ammoDump') {
+                asset.alive = false; // 👈 ADD THIS
                 const friendlyAssets = playerAssets.includes(asset) ? playerAssets : enemyAssets;
                 spawnExplosion(asset.position);
                 playSound('explosion');
@@ -1152,8 +1304,10 @@ Events.on(engine, 'collisionStart', event => {
         
             } else if (asset.label === 'hq') {
                 // 💣 HQ explodes and spawns the commander
+                asset.alive = false; // 👈 ADD THIS
                 const isPlayer = playerAssets.includes(asset);
                 World.remove(world, asset);
+                // checkVictoryCondition();
                 spawnExplosion(asset.position); // or create a spawnHQCollapse() for fancy stuff
                 playSound('structure_collapse');
 
@@ -1176,6 +1330,8 @@ Events.on(engine, 'collisionStart', event => {
                         inertia: Infinity
                     }
                 );
+
+                commander.alive = true; // 🛠️ ✅ ADD THIS LINE
 
                 // 🎤 Give him a voice
                 commander.tauntText = null;
@@ -1240,7 +1396,17 @@ Events.on(engine, 'collisionStart', event => {
                         }, 300); // 🕑 Show parachute for 2 seconds after landing
                     }
                 }, 30);
-                               
+            
+                // ✅ Logging before checking victory
+                console.log("🧪 Commander spawned!");
+                console.log("Commander label:", commander.label);
+                console.log("Commander alive:", commander.alive);
+                console.log("Current player assets:", playerAssets.map(a => a.label));
+                console.log("Current enemy assets:", enemyAssets.map(a => a.label));
+
+                // ✅ NOW check for victory — after commander is spawned and assets pushed
+                checkVictoryCondition();
+
             } else {
                 // 🔪 Regular unit death
                 if (asset.label === 'commander') {
@@ -1254,7 +1420,9 @@ Events.on(engine, 'collisionStart', event => {
                     }
                 }
             
+                asset.alive = false; // 👈 ADD THIS
                 World.remove(world, asset);
+                checkVictoryCondition();
                 asset.render.visible = false;
                 playerAssets = playerAssets.filter(a => a.assetId !== asset.assetId);
                 enemyAssets = enemyAssets.filter(a => a.assetId !== asset.assetId);
@@ -1318,9 +1486,11 @@ Events.on(engine, 'collisionActive', event => {
 function checkVictoryCondition() {
     const turnIndicator = document.getElementById('turnIndicator');
 
-    // 🛠️ Include all units that can attack
+    console.log("📦 Current player assets:", playerAssets.map(a => a.label));
+    console.log("📦 Current enemy assets:", enemyAssets.map(a => a.label));
+
     const offensiveLabels = ['cannon', 'archer', 'footSoldier', 'mortar', 'sniper', 'commander', 'machineGunNest'];
-    const isAlive = asset => world.bodies.includes(asset); // ✅ Only count bodies still in the world
+    const isAlive = asset => world.bodies.includes(asset);
 
     const playerOffense = playerAssets.filter(asset =>
         offensiveLabels.includes(asset.label) && isAlive(asset)
@@ -1329,21 +1499,73 @@ function checkVictoryCondition() {
         offensiveLabels.includes(asset.label) && isAlive(asset)
     );
 
-    if (playerOffense.length === 0 && enemyOffense.length === 0) {
-        turnIndicator.textContent = "\u{1F937} It's a draw! Nobody can shoot!";
-        turnIndicator.style.color = '#999';
-        canShoot = false;
+    // Victory Condition: Destroy Ammo Dump
+    if (victoryCondition === 'destroyDump') {
+        const playerAmmo = playerAssets.filter(asset => asset.label === 'ammoDump' && isAlive(asset));
+        const enemyAmmo = enemyAssets.filter(asset => asset.label === 'ammoDump' && isAlive(asset));
+
+        if (playerAmmo.length === 0) {
+            turnIndicator.textContent = "🏆 Player 2 wins! Ammo dump destroyed.";
+            turnIndicator.style.color = '#8b1a1a';
+            gameOver = true;
+            canShoot = false;
+        } else if (enemyAmmo.length === 0) {
+            turnIndicator.textContent = "🏆 Player 1 wins! Ammo dump destroyed.";
+            turnIndicator.style.color = '#3498db';
+            gameOver = true;
+            canShoot = false;
+        }
+
+    }
+
+    if (victoryCondition === 'killCommander') {
+    console.log("🧪 Kill the Commander check");
+
+    const playerCommander = playerAssets.find(a => a.label === 'commander');
+    const enemyCommander = enemyAssets.find(a => a.label === 'commander');
+
+    // Don't check until both commanders have *at least spawned*
+    if (!playerCommander || !enemyCommander) {
+        console.log("🛑 One or both commanders not yet spawned — delaying victory check.");
+        return;
+    }
+
+    if (!playerCommander.alive && !enemyCommander.alive) {
+        turnIndicator.textContent = "🤷‍♂️ It's a draw! Both commanders are dead.";
+        turnIndicator.style.color = '#95a5a6';
         gameOver = true;
-    } else if (playerOffense.length === 0) {
-        turnIndicator.textContent = "\u{1F3C6} Victory Player 2 (Red)!";
-        turnIndicator.style.color = '#e74c3c';
         canShoot = false;
+    } else if (!playerCommander.alive) {
+        turnIndicator.textContent = "🏆 Player 2 wins! Commander eliminated.";
+        turnIndicator.style.color = '#8b1a1a';
         gameOver = true;
-    } else if (enemyOffense.length === 0) {
-        turnIndicator.textContent = "\u{1F3C6} Victory Player 1 (Blue)!";
+        canShoot = false;
+    } else if (!enemyCommander.alive) {
+        turnIndicator.textContent = "🏆 Player 1 wins! Commander eliminated.";
         turnIndicator.style.color = '#3498db';
-        canShoot = false;
         gameOver = true;
+        canShoot = false;
+    }
+}
+
+    // Default: Last Man Standing
+    if (victoryCondition === 'lastManStanding') {
+        if (playerOffense.length === 0 && enemyOffense.length === 0) {
+            turnIndicator.textContent = "🤷 It's a draw! Nobody can shoot!";
+            turnIndicator.style.color = '#999';
+            gameOver = true;
+            canShoot = false;
+        } else if (playerOffense.length === 0) {
+            turnIndicator.textContent = "🏆 Victory Player 2!";
+            turnIndicator.style.color = '#8b1a1a';
+            gameOver = true;
+            canShoot = false;
+        } else if (enemyOffense.length === 0) {
+            turnIndicator.textContent = "🏆 Victory Player 1!";
+            turnIndicator.style.color = '#1e3d59';
+            gameOver = true;
+            canShoot = false;
+        }
     }
 }
 
@@ -1421,6 +1643,7 @@ function explodeAmmoDump(ammoDump, friendlyAssets) {
 
             if (asset.hp <= 0) {
                 World.remove(world, asset);
+                checkVictoryCondition();
                 friendlyAssets.splice(friendlyAssets.indexOf(asset), 1);
             } else {
                 asset.render.fillStyle = '#e67e22'; // Damaged assets turn orange
@@ -1516,6 +1739,10 @@ if (isDragging && selectedAsset) {
     playerAssets.concat(enemyAssets).forEach(asset => {
         if (!world.bodies.includes(asset)) return; // 🧹 Skip if body has been removed
         
+        //if (asset.label === 'barrier_block') {
+        //console.log("🧱 Drawing barrier block:", asset);
+        //}
+
         switch (asset.label) {
             case 'cannon':
                 drawAssetImage(context, asset, 'cannon', CANNON_WIDTH, CANNON_HEIGHT);
@@ -1849,8 +2076,10 @@ function quickStartRandomBattle() {
                         assetDefs.barrier.size[1],
                         {
                             isStatic: true,
-                            label: 'barrier',
-                            render: { fillStyle: assetDefs.barrier.color },
+                            label: 'barrier_block',         // For SVG render
+                            render: {
+                                visible: false              // Let your canvas handle drawing
+                            },
                             collisionFilter: {
                                 category: 0x0001,
                                 mask: 0xFFFFFFFF
@@ -1859,10 +2088,14 @@ function quickStartRandomBattle() {
                     );
                     block.parentUnitId = barrierUnitId;
                     block.assetId = nextAssetId++;
+                    block.assetType = 'barrier';  // Optional logic flag
+                    block.alive = true;
+
                     parts.push(block);
                     World.add(world, block);
                     (isPlayer ? playerAssets : enemyAssets).push(block);
                 }
+
 
                 barrierUnits.push({
                     id: barrierUnitId,
@@ -1994,6 +2227,15 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
+    const refreshBtn = document.getElementById('refreshBtn');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', () => {
+            playRandomButtonClick(); // 🔊 Play click sound first
+            setTimeout(() => location.reload(), 200); // ⏱️ Wait a moment before reload
+        });
+
+    }
+
     // 🧠 Hook up Quick Start button
     const quickStartBtn = document.getElementById('quickStartBtn');
     if (quickStartBtn) {
@@ -2038,6 +2280,113 @@ Matter.Events.on(engine, 'collisionStart', function(event) {
         }
     });
 });
+
+function createAsset(type, position, isPlayer) {
+    return placeAsset(type, position.x, position.y, isPlayer);
+}
+
+
+// === Quick Battle Button Setup ===
+document.getElementById('quickBattleButton').addEventListener('click', () => {
+    playRandomButtonClick();
+    generateRandomBattle();
+});
+
+// === Generate Random Battle ===
+function generateRandomBattle() {
+    console.log("🧪 Generating Random Battle...");
+    console.log('Quick Battle triggered!');
+
+    // 🧹 Remove leftover SVGs not tied to game objects
+    document.querySelectorAll('img.asset-svg').forEach(el => el.remove());
+
+    // 🧹 Clear all game state
+    for (const asset of [...playerAssets, ...enemyAssets]) {
+        World.remove(world, a);
+        if (asset.svg) asset.svg.remove();
+    }
+    playerAssets.length = 0;
+    enemyAssets.length = 0;
+    footSoldierSquads = {};
+    nextSquadId = 0;
+    Object.keys(placedAssetsCount).forEach(key => placedAssetsCount[key] = 0);
+
+    // ✅ Skip ready buttons and jump into battle
+    placementPhase = false;
+    isPlayerTurn = true;
+    bothPlayersReady = true;
+
+    generateSideAssets("player", 120, 280); // Left side
+    generateSideAssets("enemy", 520, 680);  // Right side
+
+    //showVictoryCondition();
+    updateTurnIndicator();
+}
+
+
+// === Generate Side Assets Function ===
+function generateSideAssets(side, minX, maxX) {
+    const isPlayer = (side === "player");
+
+    // === Place HQ First ===
+    const hqX = Math.floor(Math.random() * (maxX - minX)) + minX;
+    const hqY = 100 + Math.random() * 20;
+    const hq = createAsset("hq", { x: hqX, y: hqY }, isPlayer);
+    if (isPlayer) playerAssets.push(hq); else enemyAssets.push(hq);
+    placedAssetsCount.hq++;
+
+    // === Add 2 barriers flanking the HQ ===
+const offsets = [-50, 50];
+for (let offset of offsets) {
+    const bx = hqX + offset;
+    const by = hqY + 10;
+
+    const barrier = placeAsset('barrier', bx, by, isPlayer);
+
+    // Grab the unit from the end of barrierUnits array
+    const lastUnit = barrierUnits[barrierUnits.length - 1];
+    if (lastUnit) {
+        lastUnit.parts.forEach(part => {
+            if (isPlayer) playerAssets.push(part);
+            else enemyAssets.push(part);
+        });
+    }
+
+    placedAssetsCount.barrier++;
+}
+
+
+    // === Now place other units ===
+    const typesToPlace = [
+        { type: "cannon", count: 1 },
+        { type: "archer", count: 1 },
+        { type: "footSoldier", count: 1 },
+        { type: "sniper", count: 1 },
+        { type: "mortar", count: 1 },
+        { type: "machineGunNest", count: 1 },
+        { type: "ammoDump", count: 1 }
+    ];
+
+    let y = hqY + 60;
+
+    for (const entry of typesToPlace) {
+        for (let i = 0; i < entry.count; i++) {
+            if (!canPlaceAsset(entry.type)) continue;
+
+            const x = Math.floor(Math.random() * (maxX - minX)) + minX;
+            const spacing = 40 + Math.random() * 10;
+            if (y > 440) break;
+
+            const asset = createAsset(entry.type, { x, y }, isPlayer);
+            if (isPlayer) playerAssets.push(asset); else enemyAssets.push(asset);
+            placedAssetsCount[entry.type]++;
+            y += spacing;
+        }
+    }
+}
+
+
+
 
 // === Run Engine and Renderer ===
 Engine.run(engine);

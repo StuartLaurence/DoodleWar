@@ -2,13 +2,32 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Doodle War</title>
+  <title>Doodle War DEMO</title>
+  <link href="https://fonts.googleapis.com/css2?family=Permanent+Marker&display=swap" rel="stylesheet">
   <style>
     body {
       margin: 0;
       padding: 0;
-      font-family: sans-serif;
-      background: #ffffff; /* Light background */
+      font-family: 'Permanent Marker', cursive;
+      background: linear-gradient(
+        to bottom,
+        #d4c6a3 0%,        /* tan */
+        #d4c6a3 20%,
+        #c2b280 20%,       /* harvest gold */
+        #c2b280 40%,
+        #fef9c3 40%,       /* pale yellow left stripe start */
+        #fef9c3 40.5%,
+        #b65d1f 40.5%,     /* burnt orange starts */
+        #b65d1f 59.5%,
+        #fef9c3 59.5%,     /* pale yellow right stripe start */
+        #fef9c3 60%,
+        #8e9775 60%,       /* avocado green */
+        #8e9775 80%,
+        #5e4b3c 80%,       /* dark wood */
+        #5e4b3c 100%
+      );
+
+
       text-align: center;
       color: #000; /* Black text */
     }
@@ -58,7 +77,9 @@
       /* border: 1px solid black; */
     }
 
-
+    #loadTestBtn {
+      display: none;
+    }
 
     #turnIndicator {
       font-size: 18px;
@@ -70,12 +91,99 @@
       margin-top: 10px;
     }
 
-    #asset-ui button {
-      margin: 4px;
-      padding: 6px 12px;
+    button {
+      font-family: 'Permanent Marker', cursive;
+      background-color: #fef9c3;
+      border: none;
+      clip-path: polygon(0 0, 100% 0, 100% 90%, 95% 100%, 85% 90%, 70% 100%, 50% 90%, 30% 100%, 15% 90%, 0 100%);
+      padding: 10px 16px;
+      font-size: 16px;
+      transform: rotate(-1.5deg);
+      cursor: pointer;
+      transition: transform 0.2s, background-color 0.2s;
+      margin: 3px 6px; /* top/bottom 3px, left/right 6px */
+    }
+
+    button:hover {
+      background-color: #fff8a6; /* Slightly brighter yellow */
+      transform: rotate(0deg);   /* Straighten up a bit */
+    }
+
+    button:focus {
+      outline: none;
+      box-shadow: 4px 4px 0 #999; /* Subtle focus hint */
+    }
+
+    #howToPlayBtn {
+      background-color: #fef9c3;
+      border: none;
+      padding: 10px 16px;
+      font-family: 'Permanent Marker', cursive;
+      font-size: 16px;
+      clip-path: polygon(0 0, 100% 0, 100% 95%, 95% 100%, 85% 95%, 75% 100%, 60% 95%, 50% 100%, 35% 95%, 20% 100%, 10% 95%, 0 100%);
+      transform: rotate(-1.5deg);
+      cursor: pointer;
+      transition: transform 0.2s, background-color 0.2s;
+    }
+
+    #howToPlayBtn:hover {
+      background-color: #fff8a6;
+      transform: rotate(0deg);
+    }
+
+    #gameModeSelector {
+      margin-top: 10px;
+      font-size: 16px;
+      color: #000;
+    }
+
+    #gameModeSelector select {
+      padding: 5px;
       font-size: 14px;
+    }
+
+    #readyButton {
+      background-color: #4CAF50; /* Green */
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      text-align: center;
+      text-decoration: none;
+      display: inline-block;
+      font-size: 16px;
+      margin-top: 10px;
       cursor: pointer;
     }
+
+    #readyButton:hover {
+      background-color: #45a049; /* Darker green */
+    }
+
+    #victoryMode:focus {
+      outline: none;
+      box-shadow: 0 0 0 2px #ffd700; /* soft yellow glow */
+    }
+
+    #victoryMode {
+      font-family: 'Permanent Marker', cursive;
+      background-color: #fef9c3;
+      border: none;
+      padding: 8px 12px;
+      font-size: 16px;
+      cursor: pointer;
+      transform: rotate(-1deg);
+      clip-path: polygon(0 0, 100% 0, 100% 90%, 95% 100%, 85% 90%, 70% 100%, 50% 100%, 30% 90%, 10% 100%, 0 90%);
+      appearance: none; /* 🚫 Nukes the browser-specific styles */
+      -webkit-appearance: none;
+      -moz-appearance: none;
+    }
+
+
+    #victoryMode:focus {
+      outline: none;
+    }
+
+
   </style>
 </head>
 
@@ -92,7 +200,9 @@
 
   <div id="asset-ui">
     <button id="loadTestBtn">Load Test Level</button>
-    <button id="quickStartBtn">Quick Start Battle</button>
+    <button id="quickBattleButton">
+        Quick Battle<br><span style="font-size: 12px; color: #777;">Last Man Standing</span>
+    </button>
     <button onclick="selectAsset('cannon')">Cannon (3)</button>
     <button onclick="selectAsset('archer')">Archer (4)</button>
     <button onclick="selectAsset('mortar')">Mortar (2)</button>
@@ -103,10 +213,47 @@
     <button onclick="selectAsset('hq')">HQ (1)</button>
     <button onclick="selectAsset('barrier')">Barrier (4)</button>
     <button onclick="finishPlacement()" id="readyButton">Player 1 Ready</button>
+    <button id="refreshBtn">🔄 Refresh Game</button>
     <button onclick="playSound('cannon_fire')">Test Sound</button>
+    <div class="button-wrapper">
+      <button id="howToPlayBtn" onclick="toggleInstructions()">How to Play</button>
+    </div>
   </div>
 
+  <div id="instructionsPanel" style="display: none; margin: 10px auto; width: 80%; max-width: 600px; background-color: #fef9c3; padding: 20px; font-family: 'Permanent Marker', cursive; clip-path: polygon(0 0, 100% 0, 100% 95%, 95% 100%, 85% 95%, 75% 100%, 60% 95%, 50% 100%, 35% 95%, 20% 100%, 10% 95%, 0 100%); transform: rotate(-0.5deg);">
+    <h3>🧠 How to Play</h3>
+    <ol style="text-align: left;">
+      <li><strong>Pick your weapon!</strong> Click a unit button, then click the battlefield to place it.</li>
+      <li><strong>Stay on your side:</strong> Player 1 = Left. Player 2 = Right. Asset limits are on the buttons.</li>
+      <li><strong>Click “Ready”</strong> when done placing. Both players must hit their ready button.</li>
+      <li><strong>Shoot!</strong> Click, hold, and pull like a slingshot. Release to fire.</li>
+      <li><strong>Victory Mode:</strong> Default is “Last Man Standing.” Check the dropdown for other chaos.</li>
+    </ol>
+  </div>
+  
+
+  <div id="gameModeSelector">
+    <label for="victoryMode"><strong>Game Mode:</strong></label>
+    <select id="victoryMode">
+      <option value="lastManStanding">Last Man Standing</option>
+      <option value="destroyDump">Destroy the Dump</option>
+      <option value="killCommander">Kill the Commander</option>
+    </select>
+  </div>  
+
   <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+  
+
+  <script>
+    function toggleInstructions() {
+      const panel = document.getElementById('instructionsPanel');
+      if (panel.style.display === 'none' || panel.style.display === '') {
+        panel.style.display = 'block';
+      } else {
+        panel.style.display = 'none';
+      }
+    }
+  </script>
   <script src="game.js"></script>
 </body>
 </html>
