@@ -1135,7 +1135,343 @@ canvas.addEventListener('mouseup', () => {
     selectedAsset = null;
     canShoot = false;
 });
-    
+
+canvas.addEventListener('touchend', function(event) {
+    if (!selectedAsset || !isDragging || !canShoot) return;
+
+    isDragging = false;
+    selectedSoldierGroupCenter = null;
+
+    const touch = event.changedTouches[0];
+    const releasePos = getCanvasRelativeTouchPos(touch);
+
+    const origin = selectedSoldierGroupCenter || (Array.isArray(selectedAsset) ? selectedAsset[0].position : selectedAsset.position);
+    const dragVector = Vector.sub(origin, releasePos);
+    const offsetDir = Vector.normalise(dragVector);
+
+    if (selectedAsset.label === 'machineGunNest') {
+        fireMachineGunNest(selectedAsset, dragVector);
+    } else if (Array.isArray(selectedAsset)) {
+        const shooters = selectedAsset.filter(s => world.bodies.includes(s));
+        const power = Math.max(Vector.magnitude(dragVector), 30);
+        const velocity = Vector.mult(Vector.normalise(dragVector), power * 0.15);
+
+        playSound('foot_soldier_volley');
+
+        shooters.forEach(soldier => {
+            const spawnPos = Vector.add(soldier.position, Vector.mult(offsetDir, 15));
+            const projectile = spawnProjectile(spawnPos, "bullet", soldier.assetId, soldier.squadId);
+            if (projectile) {
+                World.add(world, projectile);
+                Body.setVelocity(projectile, velocity);
+                projectile.cleanupInterval = setInterval(() => {
+                    const speed = Vector.magnitude(projectile.velocity);
+                    if (speed < 0.05) {
+                        clearInterval(projectile.cleanupInterval);
+                        if (!projectile.hasHitSomething) {
+                            if (projectile.projectileType === 'cannonball') {
+                                playSound('explosion');
+                                playSound('explosion_debris');
+                            } else if (projectile.projectileType === 'mortarShell') {
+                                playSound('explosion');
+                            }
+                            spawnDebris(projectile.position, 6, '#aaa');
+                        }
+                        World.remove(world, projectile);
+                    }
+                }, 100);
+            }
+        });
+        setTimeout(endTurn, 1000);
+    } else {
+        const spawnPos = Vector.add(selectedAsset.position, Vector.mult(offsetDir, 30));
+        const shooterType = selectedAsset.label;
+
+        let projectileType = "bullet";
+        if (shooterType === "archer") projectileType = "arrow";
+        else if (shooterType === "cannon") projectileType = "cannonball";
+        else if (shooterType === "mortar") projectileType = "mortarShell";
+        else if (shooterType === "sniper") projectileType = "sniperRound";
+
+        switch (projectileType) {
+            case 'arrow': playSound('arrow_fire'); break;
+            case 'cannonball': playSound('cannon_fire'); break;
+            case 'mortarShell': playSound('mortar_fire'); break;
+            case 'sniperRound': playSound('sniper_fire'); break;
+            default: playSound('commander_pistol'); break;
+        }
+
+        const projectile = spawnProjectile(spawnPos, projectileType, selectedAsset.assetId);
+        if (projectile) {
+            World.add(world, projectile);
+            const power = Math.max(Vector.magnitude(dragVector), 30);
+            const velocity = Vector.mult(Vector.normalise(dragVector), power * 0.15);
+            Body.setVelocity(projectile, velocity);
+
+            projectile.cleanupInterval = setInterval(() => {
+                const speed = Vector.magnitude(projectile.velocity);
+                if (speed < 0.05) {
+                    clearInterval(projectile.cleanupInterval);
+                    if (!projectile.hasHitSomething) {
+                        if (projectile.projectileType === 'cannonball') {
+                            playSound('explosion');
+                            playSound('explosion_debris');
+                        } else if (projectile.projectileType === 'mortarShell') {
+                            playSound('explosion');
+                        }
+                        spawnDebris(projectile.position, 6, '#aaa');
+                    }
+                    World.remove(world, projectile);
+                }
+            }, 100);
+
+            setTimeout(endTurn, 1000);
+        }
+    }
+
+    selectedAsset = null;
+    canShoot = false;
+    event.preventDefault();
+}, { passive: false });
+
+canvas.addEventListener('touchstart', function(event) {
+    if (placementPhase || !canShoot) return;
+
+    const touch = event.touches[0];
+    const touchPos = getCanvasRelativeTouchPos(touch);
+
+    // Asset selection logic (mirrors mousedown)
+    const clickRadius = 20;
+    const assets = isPlayerTurn ? playerAssets : enemyAssets;
+    const shootableAssets = assets.filter(a => ['cannon', 'archer', 'footSoldier', 'mortar', 'sniper', 'machineGunNest'].includes(a.label));
+    const clicked = Query.point(shootableAssets, touchPos)[0];
+
+    if (clicked && clicked.label === 'footSoldier') {
+        selectedAsset = footSoldierSquads[clicked.squadId];
+        const alive = selectedAsset.filter(s => s && !s.isRemoved && world.bodies.includes(s));
+        selectedSoldierGroupCenter = alive.reduce((sum, s) => Vector.add(sum, s.position), { x: 0, y: 0 });
+        selectedSoldierGroupCenter = Vector.div(selectedSoldierGroupCenter, alive.length);
+    } else {
+        selectedAsset = clicked;
+        selectedSoldierGroupCenter = selectedAsset?.position || null;
+    }
+
+    if (selectedAsset) {
+        isDragging = true;
+        rubberBandPlayed = false;
+    }
+
+    // Track for aiming line
+    globalMousePos = touchPos;
+    event.preventDefault();
+}, { passive: false });
+
+// Utility to get canvas-relative position from a touch event
+function getCanvasRelativeTouchPos(touch) {
+    const rect = canvas.getBoundingClientRect();
+    return {
+        x: (touch.clientX - rect.left) * (canvas.width / rect.width),
+        y: (touch.clientY - rect.top) * (canvas.height / rect.height)
+    };
+}
+
+// === Placement Phase: Tap to Place (Mirror 'click' listener) ===
+canvas.addEventListener('touchend', function(event) {
+    if (!placementPhase || !selectedAssetType) return;
+
+    // Only treat as a tap if it wasn't a drag
+    if (isDragging) {
+        isDragging = false;
+        return;
+    }
+
+    event.preventDefault(); // Don't let the screen scroll
+    const touch = event.changedTouches[0];
+    const touchPos = getCanvasRelativeTouchPos(touch);
+
+    // --- Begin Placement Logic (copied from mouse click, using touchPos) ---
+    const isLeftSide = touchPos.x < canvas.width / 2;
+    const validSide = isPlayerTurn ? isLeftSide : !isLeftSide;
+    if (!validSide) {
+        alert("You must place assets on your own side!");
+        return;
+    }
+
+    if (placedAssetsCount[selectedAssetType] >= assetLimits[selectedAssetType]) {
+        alert(`You've reached the maximum number of ${selectedAssetType}s.`);
+        selectedAssetType = null;
+        return;
+    }
+
+    const def = assetDefs[selectedAssetType];
+
+    if (selectedAssetType === 'footSoldier') {
+        const spacing = def.size[0] + 1;
+        const count = 5;
+        const squadId = `squad_${nextSquadId++}`; // Ensure unique squad ID
+        const squad = [];
+
+        for (let i = 0; i < count; i++) {
+            const xOffset = (i - 2) * spacing;
+            const soldier = Bodies.rectangle(
+                touchPos.x + xOffset,
+                touchPos.y,
+                def.size[0],
+                def.size[1],
+                {
+                    isStatic: true,
+                    label: 'footSoldier',
+                    hp: assetHPs.footSoldier,
+                    render: { visible: false },
+                    assetId: nextAssetId++
+                }
+            );
+            soldier.squadId = squadId;
+            soldier.isFlipped = !isPlayerTurn;
+            soldier.customImageIndex = Math.floor(Math.random() * footSoldierImages.length);
+            soldier.alive = true;
+            squad.push(soldier);
+            World.add(world, soldier);
+
+            if (isPlayerTurn) playerAssets.push(soldier);
+            else enemyAssets.push(soldier);
+        }
+
+        footSoldierSquads[squadId] = squad;
+        playRandomScribble();
+
+        placedAssetsCount.footSoldier++;
+        if (placedAssetsCount.footSoldier >= assetLimits.footSoldier) {
+            selectedAssetType = null;
+        }
+    } else if (selectedAssetType === 'barrier') {
+        const parts = [];
+        const barrierUnitId = String(nextBarrierUnitId++);
+
+        for (let i = 0; i < 3; i++) {
+            const yOffset = -i * (def.size[1] + 2);
+            const block = Bodies.rectangle(
+                touchPos.x,
+                touchPos.y + yOffset,
+                def.size[0],
+                def.size[1],
+                {
+                    isStatic: true,
+                    label: 'barrier',
+                    render: { fillStyle: def.color },
+                    collisionFilter: {
+                        category: 0x0001,
+                        mask: 0xFFFFFFFF
+                    }
+                }
+            );
+            block.parentUnitId = barrierUnitId;
+            block.assetId = nextAssetId++;
+            parts.push(block);
+            World.add(world, block);
+
+            if (isPlayerTurn) playerAssets.push(block);
+            else enemyAssets.push(block);
+        }
+
+        barrierUnits.push({
+            id: barrierUnitId,
+            hp: assetHPs.barrier * parts.length,
+            parts: parts
+        });
+
+        playRandomScribble();
+
+        placedAssetsCount.barrier++;
+        if (placedAssetsCount.barrier >= assetLimits.barrier) {
+            selectedAssetType = null;
+        }
+    } else {
+        // Standard asset placement
+        const newAsset = Bodies.rectangle(
+            touchPos.x,
+            touchPos.y,
+            def.size[0],
+            def.size[1],
+            {
+                isStatic: true,
+                label: selectedAssetType,
+                hp: assetHPs[selectedAssetType],
+                render: selectedAssetType === 'barrier'
+                    ? { fillStyle: def.color }
+                    : { visible: false },
+                assetId: nextAssetId++
+            }
+        );
+
+        newAsset.alive = true;
+        newAsset.isFlipped = !isPlayerTurn;
+
+        if (isPlayerTurn) playerAssets.push(newAsset);
+        else enemyAssets.push(newAsset);
+
+        World.add(world, newAsset);
+        playRandomScribble();
+
+        placedAssetsCount[selectedAssetType]++;
+        if (placedAssetsCount[selectedAssetType] >= assetLimits[selectedAssetType]) {
+            selectedAssetType = null;
+        }
+    }
+    // --- End Placement Logic ---
+}, { passive: false });
+
+// === Drag to Aim ===
+canvas.addEventListener('touchstart', function(event) {
+    if (placementPhase || !canShoot) return;
+
+    const touch = event.touches[0];
+    globalTouchPos = getCanvasRelativeTouchPos(touch);
+
+    // Mirror your mousedown handler here:
+    // ... (select asset/squad, set isDragging = true, etc.)
+
+    isDragging = true;
+    rubberBandPlayed = false;
+    event.preventDefault();
+}, { passive: false });
+
+canvas.addEventListener('touchmove', function(event) {
+    if (!isDragging) return;
+    const touch = event.touches[0];
+    globalTouchPos = getCanvasRelativeTouchPos(touch);
+
+    // If you use getCanvasRelativeMousePos() elsewhere, 
+    // you may want to make a unified getPointerPos() that checks if touch is happening.
+    event.preventDefault();
+}, { passive: false });
+
+canvas.addEventListener('touchend', function(event) {
+    // Mirror your mouseup logic here
+    if (!selectedAsset || !isDragging || !canShoot) return;
+
+    isDragging = false;
+    selectedSoldierGroupCenter = null;
+
+    const touch = event.changedTouches[0];
+    const touchPos = getCanvasRelativeTouchPos(touch);
+
+    // Replace getCanvasRelativeMousePos() with touchPos here
+    // ... (Paste your firing logic, using touchPos for dragVector, etc.)
+
+    selectedAsset = null;
+    canShoot = false;
+    event.preventDefault();
+}, { passive: false });
+
+function getPointerPos(event) {
+    if (event.touches && event.touches.length > 0) {
+        return getCanvasRelativeTouchPos(event.touches[0]);
+    }
+    // Default to mouse
+    return getCanvasRelativeMousePos();
+}
+
 function spawnExplosion(position) {
     spawnDebris(position, 10, '#ff6600'); // 🔥 orange particles for impact
 }
@@ -1810,6 +2146,13 @@ canvas.addEventListener('mousemove', () => {
         globalMousePos = getCanvasRelativeMousePos(); // Update global mouse position
     }
 });
+
+canvas.addEventListener('touchmove', function(event) {
+    if (!isDragging) return;
+    const touch = event.touches[0];
+    globalMousePos = getCanvasRelativeTouchPos(touch); // Used for aiming line
+    event.preventDefault();
+}, { passive: false });
 
 let laserFrameCounter = 0;
 
